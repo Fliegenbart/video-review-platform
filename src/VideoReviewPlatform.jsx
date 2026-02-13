@@ -1,5 +1,112 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Play, Pause, MessageSquare, Check, Clock, Send, User, Film, FileText, Image, Scissors, Eye, CheckCircle, AlertCircle, Users, Download, Zap, Wand2, GitCompare, MousePointer2, Square, Circle, ArrowRight, Pencil, Type, Undo, Redo, Trash2, SkipBack, SkipForward, Volume2, Settings, X, Copy, Mail, Bell, BarChart3, Sparkles } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+
+const STORAGE_KEY = 'video-review-platform:projects:v1';
+
+const DEFAULT_PROJECTS = [
+  {
+    id: 1,
+    title: 'E.ON NeX26 Event Highlight',
+    phase: 'fine',
+    video: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+    duration: 596,
+    versions: [
+      { id: 'v1', name: 'Version 1.0', date: '2024-02-09', video: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4' },
+      { id: 'v2', name: 'Version 1.1', date: '2024-02-10', video: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4' }
+    ],
+    comments: [
+      {
+        id: 1,
+        time: 15,
+        stakeholder: 'client',
+        author: 'Maria Schmidt',
+        text: 'Logo sollte größer sein',
+        status: 'open',
+        timestamp: '2024-02-10 14:30',
+        annotations: [
+          { type: 'rectangle', startX: 100, startY: 50, endX: 300, endY: 150, color: '#3b82f6' }
+        ],
+        frame: 360
+      },
+      {
+        id: 2,
+        time: 45,
+        stakeholder: 'creative',
+        author: 'Tom Weber',
+        text: 'Transition hier zu abrupt',
+        status: 'resolved',
+        timestamp: '2024-02-10 15:12',
+        annotations: [],
+        frame: 1080
+      },
+      {
+        id: 3,
+        time: 120,
+        stakeholder: 'legal',
+        author: 'Dr. Müller',
+        text: 'Compliance-Check: DSGVO-Hinweis fehlt',
+        status: 'open',
+        timestamp: '2024-02-11 09:15',
+        priority: 'high',
+        annotations: [
+          { type: 'arrow', startX: 150, startY: 200, endX: 300, endY: 250, color: '#f59e0b' }
+        ],
+        frame: 2880
+      }
+    ],
+    approvals: [
+      { stakeholder: 'creative', approved: true, by: 'Tom Weber', date: '2024-02-11' },
+      { stakeholder: 'production', approved: true, by: 'Lisa König', date: '2024-02-11' }
+    ],
+    uploadedBy: 'David',
+    uploadDate: '2024-02-09',
+    dueDate: '2024-02-15',
+    analytics: {
+      views: 47,
+      avgViewTime: 324,
+      comments: 12,
+      avgResponseTime: 4.2
+    }
+  }
+];
+
+function safeJsonParse(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function loadProjects() {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+  if (!raw) return null;
+  const parsed = safeJsonParse(raw);
+  return Array.isArray(parsed) ? parsed : null;
+}
+
+function saveProjects(projects) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+  } catch {
+    // Ignore quota / serialization issues.
+  }
+}
+
+function downloadTextFile(filename, text, mime = 'text/plain') {
+  const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 const VideoReviewPlatform = () => {
   const [currentProject, setCurrentProject] = useState(null);
@@ -28,11 +135,25 @@ const VideoReviewPlatform = () => {
   const [currentFrame, setCurrentFrame] = useState(0);
   const [showTemplateComments, setShowTemplateComments] = useState(false);
   const [waveformData, setWaveformData] = useState([]);
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [activeCommentId, setActiveCommentId] = useState(null);
+  const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
+  const [newProjectTitle, setNewProjectTitle] = useState('');
+  const [newProjectPhase, setNewProjectPhase] = useState('script');
+  const [newProjectDueDate, setNewProjectDueDate] = useState('');
+  const [newProjectVideoUrl, setNewProjectVideoUrl] = useState('');
+  const [newProjectVideoFile, setNewProjectVideoFile] = useState(null);
+  const [compareVersionId, setCompareVersionId] = useState(null);
   
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const annotationCanvasRef = useRef(null);
   const timelineRef = useRef(null);
+  const isScrubbingRef = useRef(false);
+  const undoStackRef = useRef([]);
+  const redoStackRef = useRef([]);
+  const compareLeftRef = useRef(null);
+  const compareRightRef = useRef(null);
 
   const workflowPhases = [
     { id: 'script', name: 'Script Review', icon: FileText, color: '#6366f1' },
@@ -80,69 +201,11 @@ const VideoReviewPlatform = () => {
     { keys: '?', action: 'Shortcuts anzeigen' }
   ];
 
-  const [projects, setProjects] = useState([
-    {
-      id: 1,
-      title: 'E.ON NeX26 Event Highlight',
-      phase: 'fine',
-      video: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-      duration: 596,
-      versions: [
-        { id: 'v1', name: 'Version 1.0', date: '2024-02-09', video: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4' },
-        { id: 'v2', name: 'Version 1.1', date: '2024-02-10', video: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4' }
-      ],
-      comments: [
-        { 
-          id: 1, 
-          time: 15, 
-          stakeholder: 'client', 
-          author: 'Maria Schmidt', 
-          text: 'Logo sollte größer sein', 
-          status: 'open', 
-          timestamp: '2024-02-10 14:30',
-          annotations: [
-            { type: 'rectangle', x: 100, y: 50, width: 200, height: 100, color: '#3b82f6' }
-          ]
-        },
-        { 
-          id: 2, 
-          time: 45, 
-          stakeholder: 'creative', 
-          author: 'Tom Weber', 
-          text: 'Transition hier zu abrupt', 
-          status: 'resolved', 
-          timestamp: '2024-02-10 15:12',
-          annotations: []
-        },
-        { 
-          id: 3, 
-          time: 120, 
-          stakeholder: 'legal', 
-          author: 'Dr. Müller', 
-          text: 'Compliance-Check: DSGVO-Hinweis fehlt', 
-          status: 'open', 
-          timestamp: '2024-02-11 09:15',
-          priority: 'high',
-          annotations: [
-            { type: 'arrow', x1: 150, y1: 200, x2: 300, y2: 250, color: '#f59e0b' }
-          ]
-        }
-      ],
-      approvals: [
-        { stakeholder: 'creative', approved: true, by: 'Tom Weber', date: '2024-02-11' },
-        { stakeholder: 'production', approved: true, by: 'Lisa König', date: '2024-02-11' }
-      ],
-      uploadedBy: 'David',
-      uploadDate: '2024-02-09',
-      dueDate: '2024-02-15',
-      analytics: {
-        views: 47,
-        avgViewTime: 324,
-        comments: 12,
-        avgResponseTime: 4.2 // hours
-      }
-    }
-  ]);
+  const [projects, setProjects] = useState(() => loadProjects() ?? DEFAULT_PROJECTS);
+
+  useEffect(() => {
+    saveProjects(projects);
+  }, [projects]);
 
   // Simulate active users
   useEffect(() => {
@@ -186,10 +249,51 @@ const VideoReviewPlatform = () => {
   }, [currentProject]);
 
   useEffect(() => {
-    if (projects.length > 0 && !currentProject) {
+    if (projects.length === 0) {
+      if (currentProject) setCurrentProject(null);
+      return;
+    }
+
+    if (!currentProject) {
       setCurrentProject(projects[0]);
+      return;
+    }
+
+    const updated = projects.find(p => p.id === currentProject.id);
+    if (!updated) {
+      setCurrentProject(projects[0]);
+      return;
+    }
+
+    if (updated !== currentProject) {
+      setCurrentProject(updated);
     }
   }, [projects, currentProject]);
+
+  useEffect(() => {
+    setSelectedVersion('current');
+    setActiveCommentId(null);
+    setCurrentAnnotations([]);
+    setCurrentShape(null);
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+  }, [currentProject?.id]);
+
+  useEffect(() => {
+    if (!showVersionCompare) return;
+    const first = currentProject?.versions?.[0]?.id || null;
+    setCompareVersionId(prev => prev ?? first);
+  }, [showVersionCompare, currentProject?.id]);
+
+  useEffect(() => {
+    // When switching versions, reset derived playback state.
+    setVideoDuration(0);
+    setVideoTime(0);
+    setCurrentFrame(0);
+    setActiveCommentId(null);
+    const video = videoRef.current;
+    if (video) video.currentTime = 0;
+  }, [selectedVersion]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -275,17 +379,19 @@ const VideoReviewPlatform = () => {
 
   const togglePlayPause = () => {
     const video = videoRef.current;
-    if (isPlaying) {
-      video.pause();
+    if (!video) return;
+    if (video.paused) {
+      const p = video.play();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
     } else {
-      video.play();
+      video.pause();
     }
-    setIsPlaying(!isPlaying);
   };
 
   const addCommentAtTime = () => {
     setCommentTime(videoTime);
     setShowCommentDialog(true);
+    setActiveCommentId(null);
     if (isPlaying) togglePlayPause();
   };
 
@@ -304,7 +410,7 @@ const VideoReviewPlatform = () => {
       frame: Math.floor(commentTime * frameRate)
     };
 
-    setProjects(projects.map(p => 
+    setProjects(prev => prev.map(p => 
       p.id === currentProject.id 
         ? { ...p, comments: [...p.comments, comment] }
         : p
@@ -313,10 +419,11 @@ const VideoReviewPlatform = () => {
     setNewComment('');
     setCurrentAnnotations([]);
     setShowCommentDialog(false);
-    setCurrentProject({ ...currentProject, comments: [...currentProject.comments, comment] });
+    setActiveCommentId(comment.id);
   };
 
   const submitTemplateComment = (templateText) => {
+    if (!currentProject) return;
     const comment = {
       id: Date.now(),
       time: videoTime,
@@ -329,26 +436,82 @@ const VideoReviewPlatform = () => {
       frame: Math.floor(videoTime * frameRate)
     };
 
-    setProjects(projects.map(p => 
+    setProjects(prev => prev.map(p => 
       p.id === currentProject.id 
         ? { ...p, comments: [...p.comments, comment] }
         : p
     ));
 
-    setCurrentProject({ ...currentProject, comments: [...currentProject.comments, comment] });
+    setActiveCommentId(comment.id);
     setShowTemplateComments(false);
   };
 
-  const jumpToComment = (time) => {
+  const seekTo = (time) => {
     const video = videoRef.current;
     if (video) {
-      video.currentTime = time;
-      setVideoTime(time);
+      const d = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : (currentProject?.duration || 0);
+      const next = Math.min(Math.max(0, time), d || time);
+      video.currentTime = next;
+      setVideoTime(next);
+    }
+  };
+
+  const jumpToComment = (time, commentId = null) => {
+    setActiveCommentId(commentId);
+    seekTo(time);
+  };
+
+  const seekFromTimelineEvent = (e) => {
+    const el = timelineRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const frac = rect.width > 0 ? Math.min(Math.max(0, x / rect.width), 1) : 0;
+    const d = Number.isFinite(videoRef.current?.duration) && videoRef.current.duration > 0
+      ? videoRef.current.duration
+      : (currentProject?.duration || 0);
+    if (d > 0) seekTo(frac * d);
+  };
+
+  const handleTimelinePointerDown = (e) => {
+    isScrubbingRef.current = true;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    seekFromTimelineEvent(e);
+  };
+
+  const handleTimelinePointerMove = (e) => {
+    if (!isScrubbingRef.current) return;
+    seekFromTimelineEvent(e);
+  };
+
+  const handleTimelinePointerUp = () => {
+    isScrubbingRef.current = false;
+  };
+
+  const syncCompareTime = () => {
+    const left = compareLeftRef.current;
+    const right = compareRightRef.current;
+    if (!left || !right) return;
+    right.currentTime = left.currentTime;
+  };
+
+  const syncComparePlayPause = () => {
+    const left = compareLeftRef.current;
+    const right = compareRightRef.current;
+    if (!left || !right) return;
+    if (left.paused) {
+      const p1 = left.play();
+      const p2 = right.play();
+      p1?.catch?.(() => {});
+      p2?.catch?.(() => {});
+    } else {
+      left.pause();
+      right.pause();
     }
   };
 
   const toggleCommentStatus = (commentId) => {
-    setProjects(projects.map(p => 
+    setProjects(prev => prev.map(p => 
       p.id === currentProject.id 
         ? {
             ...p,
@@ -360,15 +523,6 @@ const VideoReviewPlatform = () => {
           }
         : p
     ));
-    
-    setCurrentProject({
-      ...currentProject,
-      comments: currentProject.comments.map(c => 
-        c.id === commentId 
-          ? { ...c, status: c.status === 'open' ? 'resolved' : 'open' }
-          : c
-      )
-    });
   };
 
   const approveForStakeholder = (stakeholderType) => {
@@ -379,7 +533,7 @@ const VideoReviewPlatform = () => {
       date: new Date().toISOString().split('T')[0]
     };
 
-    setProjects(projects.map(p => 
+    setProjects(prev => prev.map(p => 
       p.id === currentProject.id 
         ? {
             ...p,
@@ -387,11 +541,81 @@ const VideoReviewPlatform = () => {
           }
         : p
     ));
+  };
 
-    setCurrentProject({
-      ...currentProject,
-      approvals: [...(currentProject.approvals || []).filter(a => a.stakeholder !== stakeholderType), newApproval]
-    });
+  const resetNewProjectForm = () => {
+    setNewProjectTitle('');
+    setNewProjectPhase('script');
+    setNewProjectDueDate('');
+    setNewProjectVideoUrl('');
+    setNewProjectVideoFile(null);
+  };
+
+  const createNewProject = () => {
+    const title = newProjectTitle.trim();
+    if (!title) {
+      alert('Bitte einen Projekttitel eingeben.');
+      return;
+    }
+
+    const url = newProjectVideoUrl.trim();
+    const hasFile = Boolean(newProjectVideoFile);
+    if (!url && !hasFile) {
+      alert('Bitte Video-URL oder Datei auswählen.');
+      return;
+    }
+
+    const videoSrc = url || URL.createObjectURL(newProjectVideoFile);
+    const today = new Date().toISOString().split('T')[0];
+    const id = Date.now();
+
+    const project = {
+      id,
+      title,
+      phase: newProjectPhase,
+      video: videoSrc,
+      duration: 0,
+      versions: [],
+      comments: [],
+      approvals: [],
+      uploadedBy: 'David',
+      uploadDate: today,
+      dueDate: newProjectDueDate || '',
+      analytics: {
+        views: 0,
+        avgViewTime: 0,
+        comments: 0,
+        avgResponseTime: 0
+      }
+    };
+
+    setProjects(prev => [...prev, project]);
+    setCurrentProject(project);
+    setSelectedVersion('current');
+    setVideoDuration(0);
+    setShowNewProjectDialog(false);
+    resetNewProjectForm();
+  };
+
+  const setAnnotationsWithHistory = (next) => {
+    undoStackRef.current.push(currentAnnotations);
+    if (undoStackRef.current.length > 100) undoStackRef.current.shift();
+    redoStackRef.current = [];
+    setCurrentAnnotations(next);
+  };
+
+  const undoAnnotations = () => {
+    const prev = undoStackRef.current.pop();
+    if (!prev) return;
+    redoStackRef.current.push(currentAnnotations);
+    setCurrentAnnotations(prev);
+  };
+
+  const redoAnnotations = () => {
+    const next = redoStackRef.current.pop();
+    if (!next) return;
+    undoStackRef.current.push(currentAnnotations);
+    setCurrentAnnotations(next);
   };
 
   // Drawing on canvas
@@ -403,8 +627,22 @@ const VideoReviewPlatform = () => {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    if (drawingMode === 'text') {
+      const text = window.prompt('Text eingeben:');
+      if (!text) return;
+      setAnnotationsWithHistory([
+        ...currentAnnotations,
+        { type: 'text', x, y, text, color: '#ec4899' }
+      ]);
+      return;
+    }
+
     setIsDrawing(true);
-    setCurrentShape({ type: drawingMode, startX: x, startY: y, endX: x, endY: y });
+    if (drawingMode === 'freehand') {
+      setCurrentShape({ type: 'freehand', points: [{ x, y }], color: '#ec4899' });
+    } else {
+      setCurrentShape({ type: drawingMode, startX: x, startY: y, endX: x, endY: y, color: '#ec4899' });
+    }
   };
 
   const handleCanvasMouseMove = (e) => {
@@ -415,7 +653,14 @@ const VideoReviewPlatform = () => {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    setCurrentShape(prev => ({ ...prev, endX: x, endY: y }));
+    if (drawingMode === 'freehand') {
+      setCurrentShape(prev => {
+        if (!prev || prev.type !== 'freehand') return prev;
+        return { ...prev, points: [...prev.points, { x, y }] };
+      });
+    } else {
+      setCurrentShape(prev => ({ ...prev, endX: x, endY: y }));
+    }
     drawAnnotations();
   };
 
@@ -423,7 +668,7 @@ const VideoReviewPlatform = () => {
     if (!isDrawing) return;
     
     if (currentShape) {
-      setCurrentAnnotations([...currentAnnotations, { ...currentShape, color: '#ec4899' }]);
+      setAnnotationsWithHistory([...currentAnnotations, currentShape]);
     }
     
     setIsDrawing(false);
@@ -437,10 +682,12 @@ const VideoReviewPlatform = () => {
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw saved annotations
-    currentAnnotations.forEach(annotation => {
-      drawShape(ctx, annotation);
-    });
+    const activeComment = activeCommentId
+      ? currentProject?.comments?.find(c => c.id === activeCommentId)
+      : null;
+
+    const baseAnnotations = drawingMode ? currentAnnotations : (activeComment?.annotations || []);
+    baseAnnotations.forEach(annotation => drawShape(ctx, annotation));
 
     // Draw current shape being drawn
     if (currentShape) {
@@ -467,6 +714,20 @@ const VideoReviewPlatform = () => {
       case 'arrow':
         drawArrow(ctx, shape.startX, shape.startY, shape.endX, shape.endY);
         break;
+      case 'freehand':
+        if (!shape.points || shape.points.length < 2) break;
+        ctx.beginPath();
+        ctx.moveTo(shape.points[0].x, shape.points[0].y);
+        for (let i = 1; i < shape.points.length; i++) {
+          ctx.lineTo(shape.points[i].x, shape.points[i].y);
+        }
+        ctx.stroke();
+        break;
+      case 'text':
+        ctx.fillStyle = shape.color || '#ec4899';
+        ctx.font = '16px sans-serif';
+        ctx.fillText(shape.text || '', shape.x || 0, shape.y || 0);
+        break;
     }
   };
 
@@ -485,11 +746,144 @@ const VideoReviewPlatform = () => {
 
   useEffect(() => {
     drawAnnotations();
-  }, [currentAnnotations, currentShape]);
+  }, [currentAnnotations, currentShape, activeCommentId, drawingMode, showAnnotations, currentProject]);
+
+  useEffect(() => {
+    if (!showAnnotations) return;
+    const video = videoRef.current;
+    const canvas = annotationCanvasRef.current;
+    if (!video || !canvas) return;
+
+    const sync = () => {
+      const w = video.clientWidth;
+      const h = video.clientHeight;
+      if (!w || !h) return;
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+        drawAnnotations();
+      }
+    };
+
+    sync();
+
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null;
+    ro?.observe(video);
+    window.addEventListener('resize', sync);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', sync);
+    };
+  }, [showAnnotations, currentProject?.id, selectedVersion]);
+
+  const slugify = (value) => {
+    return String(value || 'export')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'export';
+  };
 
   const exportToPDF = () => {
-    // In a real implementation, this would generate a PDF
-    alert('PDF Export wird generiert...\n\nEnthält:\n- Alle Kommentare mit Screenshots\n- Timeline-Übersicht\n- Stakeholder-Freigaben\n- Projekt-Analytics');
+    if (!currentProject) return;
+
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const margin = 40;
+    const lineH = 14;
+    let y = 48;
+
+    const addLine = (text, opts = {}) => {
+      if (y > 800) {
+        doc.addPage();
+        y = 48;
+      }
+      doc.text(String(text), margin, y, opts);
+      y += lineH;
+    };
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    addLine(currentProject.title);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    addLine(`Phase: ${currentProject.phase}   Due: ${currentProject.dueDate || '-'}   Duration: ${formatTimecode(duration)}`);
+    addLine(`Export: ${new Date().toLocaleString('de-DE')}`);
+    y += 10;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    addLine('Freigaben');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    const approvals = currentProject.approvals || [];
+    if (approvals.length === 0) {
+      addLine('Keine Freigaben');
+    } else {
+      approvals.forEach(a => addLine(`- ${a.stakeholder}: ${a.by} (${a.date})`));
+    }
+    y += 10;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    addLine('Kommentare');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+
+    const comments = [...(currentProject.comments || [])].sort((a, b) => (a.time || 0) - (b.time || 0));
+    if (comments.length === 0) {
+      addLine('Keine Kommentare');
+    } else {
+      comments.forEach((c) => {
+        const header = `${formatTimecode(c.time || 0)}  [${c.status || 'open'}]  ${c.author || '-'}  (${c.stakeholder || '-'})`;
+        addLine(header);
+        const wrapped = doc.splitTextToSize(String(c.text || ''), pageW - margin * 2 - 16);
+        wrapped.forEach((line) => addLine(`  ${line}`));
+        if (c.annotations?.length) addLine(`  Annotationen: ${c.annotations.length}`);
+        y += 6;
+      });
+    }
+
+    const filename = `${slugify(currentProject.title)}-review.pdf`;
+    doc.save(filename);
+    setShowExportDialog(false);
+  };
+
+  const exportToEDL = () => {
+    if (!currentProject) return;
+    const lines = [];
+    lines.push(`TITLE: ${currentProject.title}`);
+    lines.push(`FCM: NON-DROP FRAME`);
+    lines.push('');
+    const comments = [...(currentProject.comments || [])].sort((a, b) => (a.time || 0) - (b.time || 0));
+    comments.forEach((c, idx) => {
+      lines.push(`${String(idx + 1).padStart(3, '0')}  AX       V     C        ${formatTimecode(c.time || 0)} ${formatTimecode(c.time || 0)} ${formatTimecode(c.time || 0)} ${formatTimecode(c.time || 0)}`);
+      lines.push(`* ${c.author || '-'} (${c.stakeholder || '-'}) [${c.status || 'open'}] ${c.text || ''}`);
+      lines.push('');
+    });
+    downloadTextFile(`${slugify(currentProject.title)}.edl`, lines.join('\n'));
+    setShowExportDialog(false);
+  };
+
+  const exportToJSON = () => {
+    if (!currentProject) return;
+    downloadTextFile(
+      `${slugify(currentProject.title)}.json`,
+      JSON.stringify(currentProject, null, 2),
+      'application/json'
+    );
+    setShowExportDialog(false);
+  };
+
+  const exportToMail = () => {
+    if (!currentProject) return;
+    const subject = encodeURIComponent(`Review: ${currentProject.title}`);
+    const comments = [...(currentProject.comments || [])].sort((a, b) => (a.time || 0) - (b.time || 0));
+    const body = encodeURIComponent(
+      comments.map(c => `- ${formatTimecode(c.time || 0)} [${c.status || 'open'}] ${c.author || '-'} (${c.stakeholder || '-'})\n  ${c.text || ''}`).join('\n\n')
+    );
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
     setShowExportDialog(false);
   };
 
@@ -511,6 +905,11 @@ const VideoReviewPlatform = () => {
     const currentPhaseIndex = workflowPhases.findIndex(p => p.id === currentProject?.phase);
     return ((currentPhaseIndex + 1) / workflowPhases.length) * 100;
   };
+
+  const duration = videoDuration || currentProject?.duration || 0;
+  const activeVideoSrc = selectedVersion === 'current'
+    ? currentProject?.video
+    : (currentProject?.versions?.find(v => v.id === selectedVersion)?.video || currentProject?.video);
 
   const filteredComments = currentProject?.comments.filter(c => 
     selectedStakeholder === 'all' || c.stakeholder === selectedStakeholder
@@ -677,23 +1076,192 @@ const VideoReviewPlatform = () => {
                 <Download className="w-5 h-5" />
                 <div>
                   <div className="font-semibold">PDF Report</div>
-                  <div className="text-sm text-zinc-400">Mit allen Kommentaren & Screenshots</div>
+                  <div className="text-sm text-zinc-400">Mit allen Kommentaren</div>
                 </div>
               </button>
-              <button className="w-full p-4 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-left transition-all flex items-center gap-3">
+              <button
+                onClick={exportToEDL}
+                className="w-full p-4 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-left transition-all flex items-center gap-3"
+              >
                 <FileText className="w-5 h-5" />
                 <div>
                   <div className="font-semibold">EDL Export</div>
                   <div className="text-sm text-zinc-400">Für Premiere/FCP</div>
                 </div>
               </button>
-              <button className="w-full p-4 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-left transition-all flex items-center gap-3">
+              <button
+                onClick={exportToJSON}
+                className="w-full p-4 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-left transition-all flex items-center gap-3"
+              >
+                <Copy className="w-5 h-5" />
+                <div>
+                  <div className="font-semibold">JSON Export</div>
+                  <div className="text-sm text-zinc-400">Projekt als Datei</div>
+                </div>
+              </button>
+              <button
+                onClick={exportToMail}
+                className="w-full p-4 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-left transition-all flex items-center gap-3"
+              >
                 <Mail className="w-5 h-5" />
                 <div>
                   <div className="font-semibold">E-Mail versenden</div>
                   <div className="text-sm text-zinc-400">Report an Stakeholder</div>
                 </div>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New Project Dialog */}
+      {showNewProjectDialog && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setShowNewProjectDialog(false)}>
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-8 max-w-lg w-full mx-4 slide-in" onClick={e => e.stopPropagation()}>
+            <h3 className="text-2xl font-bold mb-4 gradient-text">Neues Projekt</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-zinc-400 mb-2">Titel</label>
+                <input
+                  value={newProjectTitle}
+                  onChange={(e) => setNewProjectTitle(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500"
+                  placeholder="z.B. Kundenprojekt Q1"
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-zinc-400 mb-2">Phase</label>
+                  <select
+                    value={newProjectPhase}
+                    onChange={(e) => setNewProjectPhase(e.target.value)}
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500"
+                  >
+                    {workflowPhases.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-zinc-400 mb-2">Fällig am</label>
+                  <input
+                    type="date"
+                    value={newProjectDueDate}
+                    onChange={(e) => setNewProjectDueDate(e.target.value)}
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-zinc-400 mb-2">Video URL (optional)</label>
+                <input
+                  value={newProjectVideoUrl}
+                  onChange={(e) => setNewProjectVideoUrl(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500"
+                  placeholder="https://..."
+                />
+                <div className="text-xs text-zinc-500 mt-1">Hinweis: Externe Videos koennen Screenshot-Exports blockieren (CORS).</div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-zinc-400 mb-2">oder Video Datei</label>
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={(e) => setNewProjectVideoFile(e.target.files?.[0] || null)}
+                  className="w-full text-sm"
+                />
+                {newProjectVideoFile && (
+                  <div className="text-xs text-zinc-500 mt-1">Datei: {newProjectVideoFile.name}</div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={createNewProject}
+                className="flex-1 px-4 py-2 bg-gradient-to-r from-indigo-600 to-pink-600 rounded-lg font-semibold hover:from-indigo-700 hover:to-pink-700 transition-all"
+              >
+                Erstellen
+              </button>
+              <button
+                onClick={() => {
+                  setShowNewProjectDialog(false);
+                  resetNewProjectForm();
+                }}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-all"
+              >
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Version Compare Dialog */}
+      {showVersionCompare && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setShowVersionCompare(false)}>
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 max-w-5xl w-full mx-4 slide-in" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-2xl font-bold gradient-text">Version Compare</h3>
+              <button onClick={() => setShowVersionCompare(false)} className="p-2 hover:bg-zinc-800 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-sm text-zinc-400">Vergleiche:</span>
+              <span className="text-sm font-semibold">Aktuell</span>
+              <span className="text-zinc-600">vs</span>
+              <select
+                value={compareVersionId ?? ''}
+                onChange={(e) => setCompareVersionId(e.target.value)}
+                className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+              >
+                {(currentProject.versions || []).map(v => (
+                  <option key={v.id} value={v.id}>{v.name} ({v.date})</option>
+                ))}
+              </select>
+
+              <div className="flex-1" />
+              <button
+                onClick={syncCompareTime}
+                className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-all text-sm"
+                title="Zeit von links nach rechts synchronisieren"
+              >
+                Sync Time
+              </button>
+              <button
+                onClick={syncComparePlayPause}
+                className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-all text-sm font-semibold"
+              >
+                Sync Play/Pause
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-zinc-950 rounded-xl border border-zinc-800 overflow-hidden">
+                <div className="px-4 py-2 text-xs text-zinc-400 border-b border-zinc-800">Aktuell</div>
+                <video
+                  ref={compareLeftRef}
+                  src={currentProject.video}
+                  className="w-full aspect-video"
+                  controls
+                />
+              </div>
+              <div className="bg-zinc-950 rounded-xl border border-zinc-800 overflow-hidden">
+                <div className="px-4 py-2 text-xs text-zinc-400 border-b border-zinc-800">Vergleich</div>
+                <video
+                  ref={compareRightRef}
+                  src={(currentProject.versions || []).find(v => v.id === compareVersionId)?.video || currentProject.video}
+                  className="w-full aspect-video"
+                  controls
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -761,6 +1329,22 @@ const VideoReviewPlatform = () => {
                   ))}
                 </div>
               </div>
+              <select
+                value={currentProject?.id ?? ''}
+                onChange={(e) => {
+                  const id = Number(e.target.value);
+                  const next = projects.find(p => p.id === id);
+                  if (next) setCurrentProject(next);
+                }}
+                className="bg-zinc-900 hover:bg-zinc-800 rounded-lg border border-zinc-800 px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 max-w-[320px]"
+                title="Projekt wechseln"
+              >
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.title}
+                  </option>
+                ))}
+              </select>
               <button 
                 onClick={() => setShowKeyboardShortcuts(true)}
                 className="p-2 bg-zinc-900 hover:bg-zinc-800 rounded-lg border border-zinc-800 transition-all"
@@ -774,7 +1358,10 @@ const VideoReviewPlatform = () => {
                 <Download className="w-4 h-4" />
                 Export
               </button>
-              <button className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-pink-600 rounded-lg font-semibold hover:from-indigo-700 hover:to-pink-700 transition-all">
+              <button
+                onClick={() => setShowNewProjectDialog(true)}
+                className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-pink-600 rounded-lg font-semibold hover:from-indigo-700 hover:to-pink-700 transition-all"
+              >
                 Neues Projekt
               </button>
             </div>
@@ -805,7 +1392,7 @@ const VideoReviewPlatform = () => {
             </div>
             <div className="flex items-center gap-4">
               <div className="text-right">
-                <div className="text-2xl font-bold mono">{formatTime(currentProject.duration)}</div>
+                <div className="text-2xl font-bold mono">{formatTime(duration)}</div>
                 <div className="text-sm text-zinc-400">Gesamtlänge</div>
               </div>
               <button
@@ -871,10 +1458,18 @@ const VideoReviewPlatform = () => {
               <div className="relative aspect-video">
                 <video
                   ref={videoRef}
-                  src={currentProject.video}
+                  src={activeVideoSrc}
                   className="w-full h-full"
                   onPlay={() => setIsPlaying(true)}
                   onPause={() => setIsPlaying(false)}
+                  onLoadedMetadata={(e) => {
+                    const d = e.currentTarget.duration;
+                    if (Number.isFinite(d) && d > 0) setVideoDuration(d);
+                  }}
+                  onDurationChange={(e) => {
+                    const d = e.currentTarget.duration;
+                    if (Number.isFinite(d) && d > 0) setVideoDuration(d);
+                  }}
                 />
                 
                 {/* Annotation Canvas */}
@@ -929,7 +1524,23 @@ const VideoReviewPlatform = () => {
                   })}
                   <div className="w-px bg-zinc-700" />
                   <button
-                    onClick={() => setCurrentAnnotations([])}
+                    onClick={undoAnnotations}
+                    className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-all"
+                    title="Undo"
+                    disabled={undoStackRef.current.length === 0}
+                  >
+                    <Undo className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={redoAnnotations}
+                    className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-all"
+                    title="Redo"
+                    disabled={redoStackRef.current.length === 0}
+                  >
+                    <Redo className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={() => setAnnotationsWithHistory([])}
                     className="p-2 rounded-lg bg-zinc-800 hover:bg-red-600 transition-all"
                     title="Alle löschen"
                   >
@@ -949,7 +1560,16 @@ const VideoReviewPlatform = () => {
               <div className="p-4 bg-gradient-to-t from-black/90 via-black/70 to-transparent">
                 {/* Advanced Timeline with Waveform */}
                 <div className="mb-4">
-                  <div className="relative h-16 bg-zinc-900/50 rounded-lg overflow-hidden">
+                  <div
+                    ref={timelineRef}
+                    className="relative h-16 bg-zinc-900/50 rounded-lg overflow-hidden touch-none select-none"
+                    onPointerDown={handleTimelinePointerDown}
+                    onPointerMove={handleTimelinePointerMove}
+                    onPointerUp={handleTimelinePointerUp}
+                    onPointerCancel={handleTimelinePointerUp}
+                    onPointerLeave={handleTimelinePointerUp}
+                    title="Click/Drag zum Scrubben"
+                  >
                     {/* Waveform */}
                     <div className="absolute inset-0 flex items-center justify-around px-2">
                       {waveformData.map((amplitude, index) => (
@@ -958,7 +1578,7 @@ const VideoReviewPlatform = () => {
                           className="waveform-bar bg-indigo-500/30 w-1 rounded-full transition-all"
                           style={{ 
                             height: `${amplitude * 100}%`,
-                            opacity: index / waveformData.length < (videoTime / currentProject.duration) ? 1 : 0.3
+                            opacity: duration > 0 && index / waveformData.length < (videoTime / duration) ? 1 : 0.3
                           }}
                         />
                       ))}
@@ -968,7 +1588,7 @@ const VideoReviewPlatform = () => {
                     <div className="absolute bottom-0 left-0 w-full h-1 bg-white/10">
                       <div 
                         className="h-full bg-gradient-to-r from-indigo-500 to-pink-500 transition-all"
-                        style={{ width: `${(videoTime / currentProject.duration) * 100}%` }}
+                        style={{ width: `${duration > 0 ? (videoTime / duration) * 100 : 0}%` }}
                       />
                     </div>
                     
@@ -977,7 +1597,7 @@ const VideoReviewPlatform = () => {
                       <div
                         key={scene.time}
                         className="absolute top-0 bottom-0 w-px bg-yellow-500/50 cursor-pointer hover:bg-yellow-500"
-                        style={{ left: `${(scene.time / currentProject.duration) * 100}%` }}
+                        style={{ left: `${duration > 0 ? (scene.time / duration) * 100 : 0}%` }}
                         onClick={() => jumpToComment(scene.time)}
                         title={`${scene.label} (${Math.round(scene.confidence * 100)}% confidence)`}
                       >
@@ -993,10 +1613,10 @@ const VideoReviewPlatform = () => {
                         key={comment.id}
                         className="timeline-marker absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full cursor-pointer border-2 border-white/50"
                         style={{ 
-                          left: `${(comment.time / currentProject.duration) * 100}%`,
+                          left: `${duration > 0 ? (comment.time / duration) * 100 : 0}%`,
                           backgroundColor: stakeholderTypes.find(s => s.id === comment.stakeholder)?.color || '#64748b'
                         }}
-                        onClick={() => jumpToComment(comment.time)}
+                        onClick={() => jumpToComment(comment.time, comment.id)}
                         title={`${comment.author}: ${comment.text.substring(0, 50)}...`}
                       />
                     ))}
@@ -1040,7 +1660,7 @@ const VideoReviewPlatform = () => {
                     <div className="mono text-sm flex items-center gap-2">
                       <span className="text-white">{formatTimecode(videoTime)}</span>
                       <span className="text-zinc-500">/</span>
-                      <span className="text-zinc-400">{formatTimecode(currentProject.duration)}</span>
+                      <span className="text-zinc-400">{formatTimecode(duration)}</span>
                       <span className="text-zinc-600">|</span>
                       <span className="text-zinc-500 text-xs">Frame {currentFrame}</span>
                     </div>
@@ -1074,6 +1694,24 @@ const VideoReviewPlatform = () => {
                   >
                     <Volume2 className={`w-5 h-5 ${volume === 0 ? 'opacity-50' : ''}`} />
                   </button>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={volume}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      const video = videoRef.current;
+                      if (video) {
+                        video.volume = v;
+                        video.muted = v === 0;
+                      }
+                      setVolume(v);
+                    }}
+                    className="w-24 accent-indigo-500"
+                    title="Volume"
+                  />
 
                   {/* AI Features */}
                   <button
@@ -1321,10 +1959,25 @@ const VideoReviewPlatform = () => {
                 Versionen
               </h3>
               <div className="space-y-2">
+                <div
+                  className={`p-3 rounded-lg transition-all cursor-pointer ${
+                    selectedVersion === 'current' ? 'bg-indigo-600/20 border border-indigo-500/40' : 'bg-zinc-800/50 hover:bg-zinc-800'
+                  }`}
+                  onClick={() => setSelectedVersion('current')}
+                  title="Aktuelle Version"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-semibold text-sm">Aktuell</span>
+                    <span className="text-xs text-zinc-500">Live</span>
+                  </div>
+                </div>
                 {currentProject.versions?.map(version => (
                   <div
                     key={version.id}
-                    className="p-3 bg-zinc-800/50 rounded-lg hover:bg-zinc-800 transition-all cursor-pointer"
+                    className={`p-3 rounded-lg transition-all cursor-pointer ${
+                      selectedVersion === version.id ? 'bg-indigo-600/20 border border-indigo-500/40' : 'bg-zinc-800/50 hover:bg-zinc-800'
+                    }`}
+                    onClick={() => setSelectedVersion(version.id)}
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className="font-semibold text-sm">{version.name}</span>
@@ -1389,12 +2042,12 @@ const VideoReviewPlatform = () => {
                         )}
                         <div className="flex items-center justify-between text-xs text-zinc-500">
                           <button
-                            onClick={() => jumpToComment(comment.time)}
+                            onClick={() => jumpToComment(comment.time, comment.id)}
                             className="mono hover:text-indigo-400 transition-colors flex items-center gap-1"
                           >
                             <span>{formatTimecode(comment.time)}</span>
                             <span className="text-zinc-600">|</span>
-                            <span>Frame {comment.frame}</span>
+                            <span>Frame {comment.frame ?? Math.floor((comment.time || 0) * frameRate)}</span>
                           </button>
                           <span>{comment.timestamp}</span>
                         </div>
