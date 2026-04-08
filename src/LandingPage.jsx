@@ -55,8 +55,6 @@ export default function LandingPage() {
     setDurationSec(video.duration || demoReviewProject.durationSec);
   }
 
-  const quietFacts = ['Private link', 'Timecoded comments', 'Studio admin'];
-
   return (
     <div className="landing-page">
       <div className="landing-page__glow" />
@@ -85,12 +83,6 @@ export default function LandingPage() {
               <a className="ghost-button landing-button" href="/admin">
                 Admin sign in
               </a>
-            </div>
-
-            <div className="landing-subtle-strip" aria-label="Core product facts">
-              {quietFacts.map((item) => (
-                <span key={item}>{item}</span>
-              ))}
             </div>
           </div>
 

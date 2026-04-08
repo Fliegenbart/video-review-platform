@@ -896,31 +896,6 @@ body {
   min-width: 194px;
 }
 
-.landing-subtle-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 18px;
-  color: rgba(191, 206, 226, 0.72);
-  font-size: 0.78rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.landing-subtle-strip span {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.landing-subtle-strip span:not(:last-child)::after {
-  content: '';
-  width: 4px;
-  height: 4px;
-  border-radius: 999px;
-  background: rgba(141, 195, 255, 0.34);
-}
-
 .landing-stage {
   position: relative;
 }
