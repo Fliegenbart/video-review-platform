@@ -852,7 +852,7 @@ body {
 .landing-hero__copy {
   max-width: 34rem;
   display: grid;
-  gap: 22px;
+  gap: 18px;
 }
 
 .landing-kicker {
@@ -877,7 +877,6 @@ body {
   max-width: 11ch;
 }
 
-.landing-lead,
 .landing-stage__rail-header p {
   margin: 0;
   color: var(--text-soft);

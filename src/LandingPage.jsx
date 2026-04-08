@@ -74,7 +74,6 @@ export default function LandingPage() {
           <div className="landing-hero__copy">
             <div className="landing-kicker">Private video review</div>
             <h1>Private video review, without the software feeling.</h1>
-            <p className="landing-lead">Secure review for creators and clients.</p>
 
             <div className="landing-actions">
               <a className="primary-button landing-button" href="/demo">
