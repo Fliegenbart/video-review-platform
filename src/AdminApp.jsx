@@ -243,6 +243,42 @@ export default function AdminApp() {
     }
   }
 
+  async function deleteProject(project) {
+    if (!project?.id) {
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Delete project "${project.title}"? This will permanently remove the video and all comments.`
+      )
+    ) {
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    setFlashMessage(null);
+
+    try {
+      await apiRequest(`/api/admin/projects/${project.id}`, {
+        method: 'DELETE',
+      });
+
+      if (selectedProjectId === project.id) {
+        setSelectedProjectId(null);
+        setComments([]);
+      }
+
+      await refreshProjects();
+      setFlashMessage({ type: 'success', text: 'Project deleted' });
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function jumpPreviewTo(timeSec) {
     const previewVideo = previewVideoRef.current;
     if (!previewVideo) return;
@@ -411,6 +447,14 @@ export default function AdminApp() {
                             }}
                           />
                         </label>
+                        <SecondaryButton
+                          type="button"
+                          onClick={() => deleteProject(project)}
+                          disabled={busy || isUploading}
+                          aria-label="Delete project"
+                        >
+                          Delete project
+                        </SecondaryButton>
                       </div>
 
                       {isUploading ? (

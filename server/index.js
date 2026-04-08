@@ -12,6 +12,7 @@ import {
   appendComment,
   createCommentRecord,
   createProjectRecord,
+  deleteProjectAssets,
   findProjectById,
   findProjectByShareToken,
   getDataPaths,
@@ -117,6 +118,7 @@ async function main() {
   });
 
   const app = express();
+  const uploadingProjectIds = new Set();
   app.disable('x-powered-by');
 
   app.get('/api/health', (_req, res) => {
@@ -177,6 +179,22 @@ async function main() {
     projects.unshift(record);
     await saveProjects(paths, projects);
     res.status(201).json({ project: record });
+  });
+
+  app.delete('/api/admin/projects/:id', adminAuth.requireAdmin, async (req, res) => {
+    const id = req.params.id;
+    if (uploadingProjectIds.has(id)) {
+      return jsonError(res, 409, 'upload_in_progress', 'Wait for the video upload to finish.');
+    }
+
+    const projects = await loadProjects(paths);
+    const project = findProjectById(projects, id);
+    if (!project) return jsonError(res, 404, 'project_not_found');
+
+    const nextProjects = projects.filter((entry) => entry.id !== id);
+    await deleteProjectAssets(paths, id);
+    await saveProjects(paths, nextProjects);
+    res.json({ ok: true });
   });
 
   app.get('/api/admin/projects/:id/comments', adminAuth.requireAdmin, async (req, res) => {
@@ -242,51 +260,56 @@ async function main() {
         return;
       }
       handled = true;
+      uploadingProjectIds.add(project.id);
 
       processing = (async () => {
-        const uploadDir = getProjectUploadDir(paths, project.id);
-        await fsp.mkdir(uploadDir, { recursive: true });
+        try {
+          const uploadDir = getProjectUploadDir(paths, project.id);
+          await fsp.mkdir(uploadDir, { recursive: true });
 
-        const ext = pickExtension(info.filename, info.mimeType);
-        const fileName = `video-${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
-        const destPath = path.join(uploadDir, fileName);
+          const ext = pickExtension(info.filename, info.mimeType);
+          const fileName = `video-${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
+          const destPath = path.join(uploadDir, fileName);
 
-        const writeStream = fs.createWriteStream(destPath);
-        let totalSize = 0;
+          const writeStream = fs.createWriteStream(destPath);
+          let totalSize = 0;
 
-        file.on('data', (chunk) => {
-          totalSize += chunk.length;
-        });
+          file.on('data', (chunk) => {
+            totalSize += chunk.length;
+          });
 
-        file.on('limit', () => {
-          uploadError = new Error('File too large');
-          writeStream.destroy(uploadError);
-          file.unpipe(writeStream);
-          file.resume();
-        });
+          file.on('limit', () => {
+            uploadError = new Error('File too large');
+            writeStream.destroy(uploadError);
+            file.unpipe(writeStream);
+            file.resume();
+          });
 
-        file.pipe(writeStream);
+          file.pipe(writeStream);
 
-        await new Promise((resolve, reject) => {
-          writeStream.on('finish', resolve);
-          writeStream.on('error', reject);
-        });
+          await new Promise((resolve, reject) => {
+            writeStream.on('finish', resolve);
+            writeStream.on('error', reject);
+          });
 
-        // Remove the old uploaded file (if present).
-        if (project.video?.fileName) {
-          const oldPath = path.join(uploadDir, project.video.fileName);
-          fsp.unlink(oldPath).catch(() => {});
+          // Remove the old uploaded file (if present).
+          if (project.video?.fileName) {
+            const oldPath = path.join(uploadDir, project.video.fileName);
+            fsp.unlink(oldPath).catch(() => {});
+          }
+
+          project.video = {
+            fileName,
+            originalName: info.filename,
+            mimeType: info.mimeType || 'video/mp4',
+            size: totalSize,
+            uploadedAt: new Date().toISOString(),
+          };
+
+          await saveProjects(paths, projects);
+        } finally {
+          uploadingProjectIds.delete(project.id);
         }
-
-        project.video = {
-          fileName,
-          originalName: info.filename,
-          mimeType: info.mimeType || 'video/mp4',
-          size: totalSize,
-          uploadedAt: new Date().toISOString(),
-        };
-
-        await saveProjects(paths, projects);
       })().catch((err) => {
         uploadError = err;
       });

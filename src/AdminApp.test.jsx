@@ -36,6 +36,7 @@ function installFetchMock({
   },
   statusHandler,
   deleteHandler,
+  deleteProjectHandler,
 } = {}) {
   global.fetch = vi.fn(async (input, init = {}) => {
     const url = String(input);
@@ -65,6 +66,16 @@ function installFetchMock({
       return deleteHandler({
         projectId: deleteMatch[1],
         commentId: deleteMatch[2],
+        init,
+        commentsByProject,
+        projects,
+      });
+    }
+
+    const deleteProjectMatch = url.match(/^\/api\/admin\/projects\/([^/]+)$/);
+    if (deleteProjectMatch && method === 'DELETE' && deleteProjectHandler) {
+      return deleteProjectHandler({
+        projectId: deleteProjectMatch[1],
         init,
         commentsByProject,
         projects,
@@ -306,5 +317,64 @@ describe('AdminApp', () => {
     await waitFor(() => {
       expect(screen.queryByText('50 %')).not.toBeInTheDocument();
     });
+  });
+
+  it('deletes a project after confirmation and removes it from the admin list', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    installFetchMock({
+      projects: [
+        {
+          id: 'p1',
+          title: 'Spring Campaign',
+          createdAt: '2026-04-07T18:00:00.000Z',
+          shareToken: 'demo-token',
+          sharePath: '/r/demo-token',
+          hasVideo: true,
+          video: { originalName: 'spring.mp4', size: 1024, uploadedAt: '2026-04-07T18:00:00.000Z' },
+          commentCounts: { total: 1, open: 1 },
+        },
+        {
+          id: 'p2',
+          title: 'Summer Spot',
+          createdAt: '2026-04-07T18:00:00.000Z',
+          shareToken: 'summer-token',
+          sharePath: '/r/summer-token',
+          hasVideo: false,
+          video: null,
+          commentCounts: { total: 0, open: 0 },
+        },
+      ],
+      commentsByProject: { p1: [], p2: [] },
+      deleteProjectHandler: async ({ projectId, projects, commentsByProject }) => {
+        const index = projects.findIndex((project) => project.id === projectId);
+        if (index >= 0) {
+          projects.splice(index, 1);
+        }
+        delete commentsByProject[projectId];
+        return createResponse({ ok: true });
+      },
+    });
+
+    render(<AdminApp />);
+
+    await screen.findByText('Projects');
+    fireEvent.click(screen.getByText('Spring Campaign'));
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete project' })[0]);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Spring Campaign')).not.toBeInTheDocument();
+      expect(screen.getByText('Summer Spot')).toBeInTheDocument();
+      expect(
+        screen.getByText('Select a project to bring the preview and feedback stream into focus.')
+      ).toBeInTheDocument();
+    });
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      'Delete project "Spring Campaign"? This will permanently remove the video and all comments.'
+    );
+
+    confirmSpy.mockRestore();
   });
 });

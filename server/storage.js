@@ -142,3 +142,8 @@ export async function replaceComments(paths, projectId, comments) {
   const contents = comments.length ? `${comments.map((comment) => JSON.stringify(comment)).join('\n')}\n` : '';
   await writeFileAtomic(filePath, contents);
 }
+
+export async function deleteProjectAssets(paths, projectId) {
+  await fs.rm(getProjectUploadDir(paths, projectId), { recursive: true, force: true });
+  await fs.rm(getCommentsFile(paths, projectId), { force: true });
+}
