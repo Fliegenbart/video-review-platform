@@ -14,13 +14,13 @@ import {
   createProjectRecord,
   findProjectById,
   findProjectByShareToken,
-  getCommentsFile,
   getDataPaths,
   getProjectUploadDir,
   initDataDir,
   listComments,
   loadProjects,
   publicProjectForShare,
+  replaceComments,
   saveProjects,
 } from './storage.js';
 
@@ -200,12 +200,24 @@ async function main() {
 
     const comments = await listComments(paths, project.id);
     const updated = comments.map((c) => (c.id === commentId ? { ...c, status } : c));
+    await replaceComments(paths, project.id, updated);
 
-    const filePath = getCommentsFile(paths, project.id);
-    const tmpPath = `${filePath}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-    await fsp.writeFile(tmpPath, `${updated.map((c) => JSON.stringify(c)).join('\n')}\n`, 'utf8');
-    await fsp.rename(tmpPath, filePath);
+    res.json({ ok: true });
+  });
 
+  app.delete('/api/admin/projects/:id/comments/:commentId', adminAuth.requireAdmin, async (req, res) => {
+    const id = req.params.id;
+    const commentId = req.params.commentId;
+
+    const projects = await loadProjects(paths);
+    const project = findProjectById(projects, id);
+    if (!project) return jsonError(res, 404, 'project_not_found');
+
+    const comments = await listComments(paths, project.id);
+    const nextComments = comments.filter((comment) => comment.id !== commentId);
+    if (nextComments.length === comments.length) return jsonError(res, 404, 'comment_not_found');
+
+    await replaceComments(paths, project.id, nextComments);
     res.json({ ok: true });
   });
 
@@ -321,7 +333,7 @@ async function main() {
     if (!project) return jsonError(res, 404, 'not_found');
     if (!project.video) return jsonError(res, 400, 'no_video_uploaded');
 
-    const authorName = requireString(req.body?.authorName) || 'Kunde';
+    const authorName = requireString(req.body?.authorName) || 'Client';
     const text = requireString(req.body?.text);
     const timeSec = Number(req.body?.timeSec);
     if (!text) return jsonError(res, 400, 'missing_text');
@@ -336,6 +348,21 @@ async function main() {
 
     await appendComment(paths, project.id, comment);
     res.status(201).json({ comment });
+  });
+
+  app.delete('/api/share/:token/comments/:commentId', async (req, res) => {
+    const token = req.params.token;
+    const commentId = req.params.commentId;
+    const projects = await loadProjects(paths);
+    const project = findProjectByShareToken(projects, token);
+    if (!project) return jsonError(res, 404, 'not_found');
+
+    const comments = await listComments(paths, project.id);
+    const nextComments = comments.filter((comment) => comment.id !== commentId);
+    if (nextComments.length === comments.length) return jsonError(res, 404, 'comment_not_found');
+
+    await replaceComments(paths, project.id, nextComments);
+    res.json({ ok: true });
   });
 
   app.get('/api/share/:token/video', async (req, res) => {

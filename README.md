@@ -1,4 +1,6 @@
-# Video Review Platform
+# OBSIDIAN
+
+Collaborative editing made easy
 
 ## Local dev
 

@@ -8,4 +8,10 @@ export default defineConfig({
       '/api': 'http://127.0.0.1:5175',
     },
   },
+  test: {
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.js',
+    css: true,
+    exclude: ['**/node_modules/**', '**/dist/**', '**/.{idea,git,cache,output,temp}/**', '**/.worktrees/**'],
+  },
 });

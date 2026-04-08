@@ -137,3 +137,8 @@ export async function appendComment(paths, projectId, comment) {
   await fs.appendFile(filePath, line, 'utf8');
 }
 
+export async function replaceComments(paths, projectId, comments) {
+  const filePath = getCommentsFile(paths, projectId);
+  const contents = comments.length ? `${comments.map((comment) => JSON.stringify(comment)).join('\n')}\n` : '';
+  await writeFileAtomic(filePath, contents);
+}
