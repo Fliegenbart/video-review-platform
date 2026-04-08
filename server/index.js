@@ -24,6 +24,8 @@ import {
   replaceComments,
   saveProjects,
 } from './storage.js';
+import { expireProjectVideos } from './videoRetention.js';
+import { storeIncomingVideo } from './videoUpload.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,20 +45,6 @@ function formatTimecode(seconds) {
   const m = String(Math.floor((whole % 3600) / 60)).padStart(2, '0');
   const s = String(whole % 60).padStart(2, '0');
   return `${h}:${m}:${s}`;
-}
-
-function pickExtension(filename, mimeType) {
-  const lower = String(filename || '').toLowerCase();
-  const ext = lower.includes('.') ? lower.split('.').pop() : '';
-  const allow = new Set(['mp4', 'mov', 'm4v', 'webm']);
-  if (allow.has(ext)) return `.${ext}`;
-
-  const byMime = {
-    'video/mp4': '.mp4',
-    'video/quicktime': '.mov',
-    'video/webm': '.webm',
-  };
-  return byMime[mimeType] || '.mp4';
 }
 
 function parseRange(rangeHeader, size) {
@@ -100,6 +88,8 @@ function getConfig() {
     port,
     host,
     dataDir,
+    videoRetentionMs: Number(process.env.VIDEO_RETENTION_MS || 7 * 24 * 60 * 60 * 1000),
+    videoCleanupIntervalMs: Number(process.env.VIDEO_CLEANUP_INTERVAL_MS || 60 * 60 * 1000),
     adminPassword: effectiveAdminPassword,
     sessionSecret: effectiveSessionSecret,
     cookieName: process.env.ADMIN_COOKIE_NAME || 'vrp_admin',
@@ -120,6 +110,28 @@ async function main() {
   const app = express();
   const uploadingProjectIds = new Set();
   app.disable('x-powered-by');
+
+  async function cleanupExpiredVideos() {
+    const projects = await loadProjects(paths);
+    const deletedCount = await expireProjectVideos({
+      paths,
+      projects,
+      retentionMs: config.videoRetentionMs,
+      skipProjectIds: uploadingProjectIds,
+    });
+
+    if (deletedCount > 0) {
+      await saveProjects(paths, projects);
+      console.log(`[video-editor] Removed ${deletedCount} expired video upload(s)`);
+    }
+  }
+
+  await cleanupExpiredVideos();
+  setInterval(() => {
+    cleanupExpiredVideos().catch((err) => {
+      console.error('[video-editor] Failed to clean up expired videos', err);
+    });
+  }, config.videoCleanupIntervalMs).unref();
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
@@ -266,30 +278,12 @@ async function main() {
         try {
           const uploadDir = getProjectUploadDir(paths, project.id);
           await fsp.mkdir(uploadDir, { recursive: true });
-
-          const ext = pickExtension(info.filename, info.mimeType);
-          const fileName = `video-${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
-          const destPath = path.join(uploadDir, fileName);
-
-          const writeStream = fs.createWriteStream(destPath);
-          let totalSize = 0;
-
-          file.on('data', (chunk) => {
-            totalSize += chunk.length;
-          });
-
-          file.on('limit', () => {
-            uploadError = new Error('File too large');
-            writeStream.destroy(uploadError);
-            file.unpipe(writeStream);
-            file.resume();
-          });
-
-          file.pipe(writeStream);
-
-          await new Promise((resolve, reject) => {
-            writeStream.on('finish', resolve);
-            writeStream.on('error', reject);
+          const nextVideo = await storeIncomingVideo({
+            req,
+            file,
+            info,
+            paths,
+            projectId: project.id,
           });
 
           // Remove the old uploaded file (if present).
@@ -298,13 +292,7 @@ async function main() {
             fsp.unlink(oldPath).catch(() => {});
           }
 
-          project.video = {
-            fileName,
-            originalName: info.filename,
-            mimeType: info.mimeType || 'video/mp4',
-            size: totalSize,
-            uploadedAt: new Date().toISOString(),
-          };
+          project.video = nextVideo;
 
           await saveProjects(paths, projects);
         } finally {
