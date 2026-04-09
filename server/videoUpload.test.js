@@ -31,6 +31,7 @@ describe('storeIncomingVideo', () => {
     req.complete = true;
 
     const file = new PassThrough();
+    const payload = Buffer.from('video-data');
     const uploadPromise = storeIncomingVideo({
       req,
       file,
@@ -39,15 +40,15 @@ describe('storeIncomingVideo', () => {
       projectId: 'p1',
     });
 
-    file.end('video-data');
+    file.end(payload);
 
     const video = await uploadPromise;
     expect(video.originalName).toBe('review.mp4');
-    expect(video.size).toBe(10);
+    expect(video.size).toBe(payload.length);
 
-    await expect(
-      fs.stat(path.join(getProjectUploadDir(paths, 'p1'), video.fileName))
-    ).resolves.toBeTruthy();
+    const storedPath = path.join(getProjectUploadDir(paths, 'p1'), video.fileName);
+    await expect(fs.stat(storedPath)).resolves.toMatchObject({ size: payload.length });
+    await expect(fs.readFile(storedPath)).resolves.toEqual(payload);
   });
 
   it('removes the partial file when the request aborts mid-upload', async () => {

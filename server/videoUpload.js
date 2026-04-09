@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 import { getProjectUploadDir } from './storage.js';
@@ -39,6 +40,12 @@ export async function storeIncomingVideo({
   let writeStream = null;
   let destPath = null;
   let totalSize = 0;
+  const sizeTracker = new Transform({
+    transform(chunk, _encoding, callback) {
+      totalSize += chunk.length;
+      callback(null, chunk);
+    },
+  });
 
   const abortUpload = (message) => {
     if (!abortController.signal.aborted) {
@@ -59,10 +66,6 @@ export async function storeIncomingVideo({
     }
   };
 
-  file.on('data', (chunk) => {
-    totalSize += chunk.length;
-  });
-
   file.on('limit', () => {
     abortUpload('File too large');
   });
@@ -79,7 +82,7 @@ export async function storeIncomingVideo({
     destPath = path.join(uploadDir, fileName);
     writeStream = fs.createWriteStream(destPath);
 
-    await pipeline(file, writeStream, {
+    await pipeline(file, sizeTracker, writeStream, {
       signal: abortController.signal,
     });
 
