@@ -140,36 +140,6 @@ export default function ReviewApp({ token }) {
     }
   }
 
-  async function deleteComment(comment) {
-    if (!comment?.id) {
-      return;
-    }
-
-    if (!window.confirm('Delete this comment?')) {
-      return;
-    }
-
-    setBusy(true);
-    setError(null);
-
-    try {
-      await apiRequest(`/api/share/${token}/comments/${comment.id}`, {
-        method: 'DELETE',
-      });
-
-      if (activeCommentId === comment.id) {
-        setActiveCommentId(null);
-        setSelectedTimeSec(null);
-      }
-
-      await refresh();
-    } catch (err) {
-      setError(err);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   useEffect(() => {
     if (!token) {
       setState('error');
@@ -414,15 +384,6 @@ export default function ReviewApp({ token }) {
                           <span className="review-comment__label">
                             {isResolved ? 'Resolved' : 'Marked on the timeline'}
                           </span>
-                          <button
-                            type="button"
-                            className="ghost-button review-comment__delete"
-                            onClick={() => deleteComment(comment)}
-                            disabled={busy}
-                            aria-label="Delete comment"
-                          >
-                            Delete
-                          </button>
                         </div>
                       </article>
                     );

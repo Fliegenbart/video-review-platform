@@ -340,9 +340,9 @@ body {
 
 .review-page .review-hero h1 {
   margin: 10px 0 12px;
-  font-size: clamp(2.1rem, 4vw, 3.2rem);
+  font-size: 3.2rem;
   line-height: 0.92;
-  letter-spacing: -0.05em;
+  letter-spacing: 0;
 }
 
 .review-page .review-hero p,
@@ -429,8 +429,8 @@ body {
 .review-page .review-sidebar__header h3,
 .review-page .review-composer h3 {
   margin: 8px 0 0;
-  font-size: clamp(1.4rem, 2vw, 2rem);
-  letter-spacing: -0.03em;
+  font-size: 1.9rem;
+  letter-spacing: 0;
 }
 
 .review-page .review-sidebar__header {
@@ -726,10 +726,6 @@ body {
   color: var(--text-faint);
 }
 
-.review-page .review-comment__delete {
-  padding: 0.7rem 1rem;
-}
-
 .review-page .review-feedback {
   padding: 18px 20px;
   border-radius: 22px;
@@ -753,6 +749,16 @@ body {
 @media (max-width: 980px) {
   .review-page .review-shell {
     padding: 28px 16px 40px;
+  }
+
+  .review-page .review-hero h1 {
+    font-size: 2.65rem;
+  }
+
+  .review-page .review-stage__header h2,
+  .review-page .review-sidebar__header h3,
+  .review-page .review-composer h3 {
+    font-size: 1.45rem;
   }
 
   .review-page .review-hero,
@@ -868,12 +874,12 @@ body {
 .landing-detail h2,
 .landing-final-cta h2 {
   margin: 0;
-  letter-spacing: -0.055em;
+  letter-spacing: 0;
   line-height: 0.92;
 }
 
 .landing-hero h1 {
-  font-size: clamp(2.9rem, 6.7vw, 5.8rem);
+  font-size: 5.8rem;
   max-width: 11ch;
 }
 
@@ -975,8 +981,8 @@ body {
 .landing-stage__rail-header h3,
 .landing-workflow__item h3 {
   margin: 8px 0 0;
-  font-size: clamp(1.25rem, 2vw, 1.9rem);
-  letter-spacing: -0.04em;
+  font-size: 1.7rem;
+  letter-spacing: 0;
 }
 
 .landing-stage__video-frame {
@@ -1086,9 +1092,13 @@ body {
     min-height: auto;
   }
 
-  .landing-hero__copy,
   .landing-hero__copy {
     max-width: none;
+  }
+
+  .landing-hero h1 {
+    font-size: 4.2rem;
+    max-width: 13ch;
   }
 
   .landing-stage__screen {
@@ -1104,20 +1114,35 @@ body {
   }
 
   .landing-nav {
-    flex-direction: column;
-    align-items: stretch;
+    align-items: center;
+    padding-top: 24px;
   }
 
   .landing-nav__actions {
-    justify-content: flex-start;
+    display: none;
   }
 
   .landing-main {
+    padding-top: 14px;
     padding-bottom: 56px;
   }
 
+  .landing-hero {
+    gap: 28px;
+  }
+
+  .landing-kicker {
+    font-size: 0.7rem;
+    letter-spacing: 0.18em;
+  }
+
   .landing-hero h1 {
-    font-size: clamp(2.35rem, 13vw, 3.85rem);
+    font-size: 2.85rem;
+    max-width: 12ch;
+  }
+
+  .landing-page .brand-lockup {
+    margin-bottom: 0;
   }
 
   .landing-stage__frame,
@@ -1137,8 +1162,28 @@ body {
     flex-direction: column;
   }
 
+  .landing-stage__player-header h2,
+  .landing-stage__rail-header h3 {
+    font-size: 1.35rem;
+  }
+
   .landing-button {
     width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .landing-hero h1 {
+    font-size: 2.55rem;
+    line-height: 0.96;
+  }
+
+  .landing-actions {
+    gap: 10px;
+  }
+
+  .landing-stage__frame {
+    padding: 14px;
   }
 }
 
@@ -1186,9 +1231,9 @@ body {
 
 .admin-page .admin-topbar h1 {
   margin: 8px 0 12px;
-  font-size: clamp(2.8rem, 4vw, 4.4rem);
+  font-size: 4rem;
   line-height: 0.92;
-  letter-spacing: -0.05em;
+  letter-spacing: 0;
 }
 
 .admin-page .admin-topbar p {
@@ -1261,7 +1306,7 @@ body {
 .admin-page .admin-panel h2 {
   margin: 0;
   font-size: 1.5rem;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
 }
 
 .admin-page .admin-login-card p,
@@ -1678,6 +1723,10 @@ body {
 @media (max-width: 980px) {
   .admin-page .admin-shell {
     padding: 28px 16px 40px;
+  }
+
+  .admin-page .admin-topbar h1 {
+    font-size: 3rem;
   }
 
   .admin-page .admin-grid {

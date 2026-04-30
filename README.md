@@ -43,6 +43,8 @@ export SESSION_SECRET='choose-a-long-random-secret'
 export HOST=127.0.0.1
 export PORT=3005
 export DATA_DIR=/var/lib/video-editor
+# optional: video uploads expire after 90 days by default; set 0 to keep them
+export VIDEO_RETENTION_DAYS=90
 
 npm run build
 npm start

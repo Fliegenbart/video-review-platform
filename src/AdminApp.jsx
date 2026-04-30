@@ -344,6 +344,14 @@ export default function AdminApp() {
             <h2>Admin sign in</h2>
             <p>Only your team needs access here. Clients open the secure review link directly.</p>
             <form className="admin-login-form" onSubmit={handleSignIn}>
+              <input
+                type="text"
+                name="username"
+                value="admin"
+                autoComplete="username"
+                readOnly
+                hidden
+              />
               <label className="admin-field">
                 <span>Password</span>
                 <Input

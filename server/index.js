@@ -24,6 +24,7 @@ import {
   replaceComments,
   saveProjects,
 } from './storage.js';
+import { parseVideoRetentionMs } from './config.js';
 import { expireProjectVideos } from './videoRetention.js';
 import { storeIncomingVideo } from './videoUpload.js';
 
@@ -88,7 +89,7 @@ function getConfig() {
     port,
     host,
     dataDir,
-    videoRetentionMs: Number(process.env.VIDEO_RETENTION_MS || 7 * 24 * 60 * 60 * 1000),
+    videoRetentionMs: parseVideoRetentionMs(process.env),
     videoCleanupIntervalMs: Number(process.env.VIDEO_CLEANUP_INTERVAL_MS || 60 * 60 * 1000),
     adminPassword: effectiveAdminPassword,
     sessionSecret: effectiveSessionSecret,
@@ -359,21 +360,6 @@ async function main() {
 
     await appendComment(paths, project.id, comment);
     res.status(201).json({ comment });
-  });
-
-  app.delete('/api/share/:token/comments/:commentId', async (req, res) => {
-    const token = req.params.token;
-    const commentId = req.params.commentId;
-    const projects = await loadProjects(paths);
-    const project = findProjectByShareToken(projects, token);
-    if (!project) return jsonError(res, 404, 'not_found');
-
-    const comments = await listComments(paths, project.id);
-    const nextComments = comments.filter((comment) => comment.id !== commentId);
-    if (nextComments.length === comments.length) return jsonError(res, 404, 'comment_not_found');
-
-    await replaceComments(paths, project.id, nextComments);
-    res.json({ ok: true });
   });
 
   app.get('/api/share/:token/video', async (req, res) => {

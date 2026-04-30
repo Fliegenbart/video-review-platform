@@ -308,61 +308,17 @@ describe('ReviewApp', () => {
     });
   });
 
-  it('lets anyone with the share link delete an existing comment after confirmation', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    const comments = [
-      {
-        id: 'c1',
-        authorName: 'Anna',
-        timeSec: 12,
-        text: 'Title feels too small',
-        status: 'open',
-        createdAt: '2026-04-07T18:00:00.000Z',
-      },
-    ];
-
-    global.fetch = vi.fn(async (input, init = {}) => {
-      const url = String(input);
-      const method = init.method || 'GET';
-
-      if (url === '/api/share/demo' && method === 'GET') {
-        return new Response(
-          JSON.stringify({
-            project: { title: 'Launch Cut', createdAt: '2026-04-07T18:00:00.000Z', hasVideo: true },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-
-      if (url === '/api/share/demo/comments' && method === 'GET') {
-        return new Response(JSON.stringify({ comments }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      if (url === '/api/share/demo/comments/c1' && method === 'DELETE') {
-        comments.splice(0, comments.length);
-        return new Response(JSON.stringify({ ok: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      throw new Error(`Unexpected request: ${method} ${url}`);
-    });
-
+  it('does not expose comment deletion on public review links', async () => {
     render(<ReviewApp token="demo" />);
 
     await screen.findByText('Title feels too small');
-    fireEvent.click(screen.getByRole('button', { name: 'Delete comment' }));
 
-    await waitFor(() => {
-      expect(screen.queryByText('Title feels too small')).not.toBeInTheDocument();
-      expect(screen.getByText('No feedback yet.')).toBeInTheDocument();
-    });
-
-    expect(confirmSpy).toHaveBeenCalled();
-    confirmSpy.mockRestore();
+    expect(screen.queryByRole('button', { name: 'Delete comment' })).not.toBeInTheDocument();
+    expect(
+      global.fetch.mock.calls.some(([input, init = {}]) => {
+        const url = String(input);
+        return url === '/api/share/demo/comments/c1' && init.method === 'DELETE';
+      })
+    ).toBe(false);
   });
 });

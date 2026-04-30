@@ -60,6 +60,9 @@ NODE_ENV=production
 HOST=0.0.0.0
 PORT=3005
 DATA_DIR=/var/lib/video-editor
+# Videos werden standardmaessig nach 90 Tagen entfernt.
+# 0 bedeutet: Videos behalten, bis ein Admin sie loescht.
+VIDEO_RETENTION_DAYS=90
 
 # sehr wichtig: starkes Passwort + langes Secret
 ADMIN_PASSWORD=CHANGE_ME
