@@ -83,6 +83,11 @@ export function createAdminAuth({ adminPassword, sessionSecret, cookieName }) {
   return {
     cookieName: COOKIE,
 
+    isSignedIn(req) {
+      const cookies = parseCookies(req.headers.cookie);
+      return verifySession(cookies[COOKIE]);
+    },
+
     requireAdmin(req, res, next) {
       const cookies = parseCookies(req.headers.cookie);
       const token = cookies[COOKIE];
@@ -106,4 +111,3 @@ export function createAdminAuth({ adminPassword, sessionSecret, cookieName }) {
     },
   };
 }
-

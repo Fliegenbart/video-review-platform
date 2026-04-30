@@ -10,6 +10,7 @@ function createResponse(payload, status = 200) {
 }
 
 function installFetchMock({
+  authenticated = true,
   projects = [
     {
       id: 'p1',
@@ -41,6 +42,10 @@ function installFetchMock({
   global.fetch = vi.fn(async (input, init = {}) => {
     const url = String(input);
     const method = init.method || 'GET';
+
+    if (url === '/api/admin/session' && method === 'GET') {
+      return createResponse({ authenticated });
+    }
 
     if (url === '/api/admin/projects' && method === 'GET') {
       return createResponse({ projects });
@@ -180,6 +185,23 @@ describe('AdminApp', () => {
     fireEvent.click(screen.getByText('Title feels too small'));
 
     expect(video.currentTime).toBe(18);
+  });
+
+  it('checks the admin session before loading protected project data', async () => {
+    installFetchMock({ authenticated: false });
+
+    render(<AdminApp />);
+
+    await screen.findByRole('heading', { name: 'Admin sign in' });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/admin/session',
+      expect.objectContaining({ method: 'GET' })
+    );
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      '/api/admin/projects',
+      expect.objectContaining({ method: 'GET' })
+    );
   });
 
   it('shows an inline error message when copying the share link fails', async () => {

@@ -151,6 +151,10 @@ async function main() {
     res.json({ ok: true });
   });
 
+  app.get('/api/admin/session', (req, res) => {
+    res.json({ authenticated: adminAuth.isSignedIn(req) });
+  });
+
   app.delete('/api/admin/session', (req, res) => {
     res.setHeader('Set-Cookie', adminAuth.signOut());
     res.json({ ok: true });

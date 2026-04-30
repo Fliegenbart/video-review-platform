@@ -69,11 +69,17 @@ export default function AdminApp() {
   }
 
   useEffect(() => {
-    refreshProjects().catch((err) => {
-      if (err?.status === 401) {
+    async function checkSession() {
+      const session = await apiRequest('/api/admin/session');
+      if (!session?.authenticated) {
         setAuthState('signed_out');
         return;
       }
+
+      await refreshProjects();
+    }
+
+    checkSession().catch((err) => {
       setError(err);
       setAuthState('signed_out');
     });
